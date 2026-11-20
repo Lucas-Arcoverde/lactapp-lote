@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Lote | LactApp</title>
+  <style>
+    body { margin: 0; min-height: 100vh; font-family: system-ui, -apple-system, sans-serif;
+           background: #F4F7FB; color: #14213D; display: flex; justify-content: center; padding: 20px; box-sizing: border-box; }
+    main { width: 100%; max-width: 480px; display: flex; flex-direction: column; gap: 14px; }
+    .card { background: #fff; border: 1px solid #D9E2EE; border-radius: 16px; padding: 18px; }
+    .centro { text-align: center; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+    h1 { font-size: 20px; margin: 0; color: #1F6FD9; }
+    h2 { font-size: 15px; margin: 0 0 10px; }
+    p { margin: 0; color: #6B7280; line-height: 1.5; font-size: 14px; }
+    .linha { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-top: 1px solid #EEF2F7; font-size: 14px; }
+    .linha:first-of-type { border-top: 0; }
+    .rotulo { color: #6B7280; }
+    .valor { font-weight: 600; text-align: right; }
+    .badge { display: inline-block; padding: 4px 10px; border-radius: 12px; color: #fff; font-size: 12px; font-weight: 600; }
+    .codigo { font-size: 18px; color: #14213D; font-weight: 700; }
+    input { width: 100%; box-sizing: border-box; height: 46px; border: 1px solid #D9E2EE; border-radius: 12px;
+            padding: 0 14px; font-size: 16px; background: #F4F7FB; }
+    button { width: 100%; height: 48px; border: 0; border-radius: 24px; background: #1F6FD9; color: #fff;
+             font-size: 16px; font-weight: 600; cursor: pointer; }
+    .erro { color: #D64545; font-size: 14px; }
+    .aviso { font-size: 12px; color: #6B7280; line-height: 1.5; }
+    .oculto { display: none; }
+  </style>
+</head>
+<body>
+<main id="app">
+  <div class="card centro"><p>Carregando lote...</p></div>
+</main>
+
+<script>
+  // Configuração pública (mesma chave publicável do aplicativo).
+  const SUPABASE_URL = "https://vakjgscgtdxjysmnyfmi.supabase.co";
+  const CHAVE_PUBLICA = "sb_publishable_KQZYKAG-dieiMXebnt7jIQ_stsibnQg";
+  const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  const ROTULO_PARAMETRO = {
+    temperatura: "Temperatura do leite (°C)", ph: "Potencial hidrogeniônico (pH)",
+    acidez: "Acidez titulável (°D)", densidade: "Densidade (g/mL)",
+    gordura: "Teor de gordura (%)", proteina: "Teor de proteína (%)",
+    cbt: "Contagem bacteriana total (UFC/mL)", amido: "Presença de amido",
+    neutralizantes: "Neutralizantes", peroxido: "Peróxido",
+  };
+  const ROTULO_STATUS = { dentro: "Dentro do padrão", atencao: "Atenção", fora: "Fora do padrão", sem_referencia: "Sem referência" };
+  const CORES_STATUS = { dentro: "#22A06B", atencao: "#E0A100", fora: "#D64545", sem_referencia: "#6B7280" };
+  const TIPOS = { completa: "Análise Completa", bacteriana: "Contagem Bacteriana", densidade: "Densidade e Pureza" };
+
+  const app = document.getElementById("app");
+  const token = new URLSearchParams(location.search).get("t");
+
+  // Cria elementos usando textContent, então nenhum dado do banco é interpretado como HTML.
+  function el(tag, props = {}, filhos = []) {
+    const node = document.createElement(tag);
+    Object.entries(props).forEach(([k, v]) => {
+      if (k === "style") node.setAttribute("style", v);
+      else if (k === "className") node.className = v;
+      else if (k in node) node[k] = v;
+      else node.setAttribute(k, v);
+    });
+    filhos.forEach((f) => node.append(f));
+    return node;
+  }
+  const texto = (t) => document.createTextNode(String(t ?? "—"));
+  const mostrar = (...nodes) => { app.replaceChildren(...nodes); };
+  const cartaoMensagem = (titulo, corpo) =>
+    el("div", { className: "card centro" }, [el("h1", {}, [texto(titulo)]), el("p", {}, [texto(corpo)])]);
+
+  const dataBr = (iso) => {
+    if (!iso) return null;
+    const [a, m, d] = iso.split("-");
+    return `${d}/${m}/${a}`;
+  };
+
+  async function consultar(senha) {
+    const resposta = await fetch(`${SUPABASE_URL}/rest/v1/rpc/consultar_lote_publico`, {
+      method: "POST",
+      headers: { apikey: CHAVE_PUBLICA, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_token: token, p_senha: senha }),
+    });
+    if (!resposta.ok) throw new Error("falha");
+    return resposta.json();
+  }
+
+  function formularioSenha(erro) {
+    const input = el("input", { type: "password", name: "senha", placeholder: "Senha", required: true, minLength: 6, autocomplete: "off" });
+    const botao = el("button", { type: "submit" }, [texto("Ver lote")]);
+    const form = el("form", { className: "card", style: "display:flex;flex-direction:column;gap:12px" }, [
+      el("p", {}, [texto("Digite a senha informada por quem enviou este lote.")]),
+      input,
+      ...(erro ? [el("p", { className: "erro" }, [texto(erro)])] : []),
+      botao,
+    ]);
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      botao.disabled = true;
+      try {
+        const r = await consultar(input.value);
+        tratar(r, input.value);
+      } catch {
+        mostrar(formularioSenha("Não foi possível verificar a senha. Tente novamente."));
+      }
+    });
+    return el("div", {}, [
+      el("div", { className: "card centro" }, [el("h1", {}, [texto("Lote protegido por senha")])]),
+      form,
+    ]);
+  }
+
+  function renderLote(lote) {
+    const badge = (status) => el("span", { className: "badge", style: `background:${CORES_STATUS[status] || CORES_STATUS.sem_referencia}` }, [texto(ROTULO_STATUS[status] || ROTULO_STATUS.sem_referencia)]);
+
+    const linhasIdentificacao = [
+      ["Código", lote.codigo],
+      ["Tipo de análise", TIPOS[lote.tipo] || lote.tipo],
+      ["Produto", lote.produto],
+      ["Data da coleta", dataBr(lote.data_coleta)],
+      ["Horário", lote.hora_coleta],
+      ["Origem", lote.origem],
+      ["Temperatura", lote.temperatura_c != null ? `${lote.temperatura_c} °C` : null],
+      ["Raça", lote.raca],
+      ["Número de animais", lote.numero_animais != null ? String(lote.numero_animais) : null],
+      ["Ordenha", lote.ordenha],
+    ].filter(([, v]) => v)
+     .map(([r, v]) => el("div", { className: "linha" }, [el("span", { className: "rotulo" }, [texto(r)]), el("span", { className: "valor" }, [texto(v)])]));
+
+    const resultados = Object.entries(lote.valores || {}).map(([chave, valor]) =>
+      el("div", { className: "linha" }, [
+        el("span", { className: "rotulo" }, [texto(ROTULO_PARAMETRO[chave] || chave)]),
+        el("span", { className: "valor" }, [texto(valor), texto(" "), badge((lote.indicadores || {})[chave] || "sem_referencia")]),
+      ])
+    );
+
+    mostrar(
+      el("div", { className: "card centro" }, [
+        el("h1", {}, [texto("Dados do lote")]),
+        badge(lote.status),
+        el("p", { className: "codigo" }, [texto(lote.codigo)]),
+      ]),
+      el("div", { className: "card" }, [el("h2", {}, [texto("Identificação")]), ...linhasIdentificacao]),
+      el("div", { className: "card" }, [
+        el("h2", {}, [texto("Resultados laboratoriais")]),
+        ...(resultados.length ? resultados : [el("p", {}, [texto("Nenhum resultado registrado.")])]),
+      ]),
+      el("p", { className: "aviso" }, [texto("Os valores foram informados pelo laboratório responsável. A classificação usa faixas de referência de partida e não substitui laudo ou validação de um responsável técnico.")]),
+    );
+  }
+
+  function tratar(r, senhaDigitada) {
+    switch (r.status) {
+      case "ok":
+        renderLote(r.lote);
+        break;
+      case "senha_necessaria":
+        mostrar(formularioSenha());
+        break;
+      case "senha_incorreta":
+        mostrar(formularioSenha("Senha incorreta. Tente novamente."));
+        break;
+      case "bloqueado":
+        mostrar(cartaoMensagem("Acesso temporariamente bloqueado", "Muitas tentativas com senha incorreta. Tente novamente em alguns minutos."));
+        break;
+      default:
+        mostrar(cartaoMensagem("Lote não encontrado", "Este QR code não corresponde a um lote válido. O link pode ter sido substituído por um novo."));
+    }
+  }
+
+  (async () => {
+    if (!token || !UUID.test(token)) {
+      mostrar(cartaoMensagem("Lote não encontrado", "Este QR code não corresponde a um lote válido."));
+      return;
+    }
+    try {
+      tratar(await consultar(null));
+    } catch {
+      mostrar(cartaoMensagem("Não foi possível carregar o lote", "Tente novamente em instantes."));
+    }
+  })();
+</script>
+</body>
+</html>
